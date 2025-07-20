@@ -1,0 +1,12 @@
+[package]
+name = "xdp_af"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aya = "0.13.1"
+aya-log = "0.2.1"
+stacked_errors = "0.7.1"
+tracing = "0.1.41"
+xdp = "0.7.0"
+zerocopy = "0.8.26"
