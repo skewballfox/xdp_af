@@ -4,7 +4,11 @@ use std::sync::{Arc, atomic::AtomicBool};
 use aya::programs::xdp::XdpLinkId;
 use stacked_errors::{Error, Result, bail};
 use tracing::span;
-use xdp::{Umem, libc, nic::NicIndex, slab::StackSlab};
+use xdp::{
+    Umem, libc,
+    nic::NicIndex,
+    slab::{Slab, StackSlab},
+};
 
 use crate::{
     program::{EbpfProgram, XdpWorker},
@@ -143,7 +147,7 @@ where
                 &mut tx_slab,
                 &mut data,
             );
-            let prev_len = todo!(); //tx_slab.len();
+            let prev_len = tx_slab.len();
             let enqueued_sends = match tx.send(&mut tx_slab, true) {
                 Ok(es) => es,
                 Err(error) => {
@@ -158,8 +162,7 @@ where
                     //     tracing::info!("TODO: handle enqueued sends err: {error}");
                     // }
 
-                    // prev_len - tx_slab.len()
-                    todo!()
+                    prev_len - tx_slab.len()
                 }
             };
 
@@ -190,7 +193,7 @@ pub struct XdpWorkers<const TXN: usize, const RXN: usize, C: UserSpaceConfig<TXN
     pub user_space: C,
 }
 
-impl<'a, L: XdpLoaderConfig> IOLoopHandler<L> {
+impl<L: XdpLoaderConfig> IOLoopHandler<L> {
     /// Detaches the eBPF program from the attacked NIC and cancels all I/O
     /// threads, waiting for them to exit
     pub fn shutdown(mut self, wait: bool) -> Result<()> {
