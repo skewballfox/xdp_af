@@ -1,18 +1,15 @@
 use std::ffi::CString;
 
-use stacked_errors::{Result, StackableErr, bail};
+use stacked_errors::{StackableErr, bail};
 use xdp::nic::NicIndex;
 
-pub fn reserved_port_calculator() -> Vec<(u16, u16)> {
-    todo!()
-}
 
 const LOCAL_PORT_RANGE: &str = "/proc/sys/net/ipv4/ip_local_port_range";
 /// quilkin relied on the default ephimeral port range being
 /// 32768-60999, so that it could use 61000-65535 for its program.
 /// This function checks that the system ephimeral port range is still
 /// ends at 60999 and returns the range above it to u16::MAX
-pub fn default_ephimeral_ports() -> Result<Vec<(u16, u16)>> {
+pub fn default_ephimeral_ports() -> stacked_errors::Result<Vec<(u16, u16)>> {
     let (start, end) = get_ephemeral_port_range().stack()?;
 
     if end != 60999 {
@@ -84,10 +81,61 @@ fn mut_ephemeral_port_range(start: u16, stop: u16) -> std::result::Result<(), st
     Ok(())
 }
 
-pub fn nic_index_from_name(iface: CString) -> Result<NicIndex> {
+pub fn nic_index_from_name(iface: CString) -> stacked_errors::Result<NicIndex> {
     match NicIndex::lookup_by_name(&iface).stack() {
         Ok(Some(res)) => Ok(res),
         Ok(None) => bail!(format!("iface {:?} does not exists", &iface)),
         Err(e) => Err(e),
+    }
+}
+
+
+///For functions that take bytes, offsets or lengths, this provides a
+/// way to indicate where exactly in the packet the inner value starts
+#[derive(Ord, PartialOrd, Eq, PartialEq, Debug)]
+pub enum Lvl<T> {
+    Eth(T),
+    Ip(T),
+    Transport(T),
+    Data(T),
+}
+
+pub struct InvalidLvl;
+
+impl<T> Lvl<T> {
+    /// Helper function to be used in functions that
+    /// expect to start at the eth header level
+    pub fn into_eth(self) -> Result<T, InvalidLvl> {
+        match self {
+            Lvl::Eth(x) => Ok(x),
+            _ => Err(InvalidLvl),
+        }
+    }
+
+    /// Helper function to be used in functions that
+    /// expect to start at the ip header level
+    pub fn into_ip(self) -> Result<T, InvalidLvl> {
+        match self {
+            Lvl::Ip(x) => Ok(x),
+            _ => Err(InvalidLvl),
+        }
+    }
+
+    /// Helper function to be used in functions that
+    /// expect to start at the transport header level
+    pub fn into_transport(self) -> Result<T, InvalidLvl> {
+        match self {
+            Lvl::Transport(x) => Ok(x),
+            _ => Err(InvalidLvl),
+        }
+    }
+
+    /// Helper function to be used in functions that
+    /// expect to start at the data inside the packet
+    pub fn into_data(self) -> Result<T, InvalidLvl> {
+        match self {
+            Lvl::Data(x) => Ok(x),
+            _ => Err(InvalidLvl),
+        }
     }
 }
