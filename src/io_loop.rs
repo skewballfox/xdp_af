@@ -20,7 +20,7 @@ pub fn spawn<const TXN: usize, const RXN: usize, C>(
     workers: XdpWorkers<TXN, RXN, C>,
 ) -> Result<IOLoopHandler<C::Loader>>
 where
-    C: UserSpaceConfig<TXN, RXN> + 'static,
+    C: UserSpaceConfig + 'static,
 {
     let (ipv4, ipv6) = workers.nic.addresses().map_err(Error::from_err)?;
     if ipv4.is_none() && ipv6.is_none() {
@@ -63,7 +63,7 @@ interface"
                 };
                 barrier.wait();
                 tracing::info!("passing to inner loop");
-                io_loop(worker, config, shutdown)
+                io_loop::<TXN, RXN, _>(worker, config, shutdown)
             })
             .map_err(Error::from_err)?;
         handles.push(jh);
@@ -95,7 +95,7 @@ pub fn io_loop<const TXN: usize, const RXN: usize, C>(
     shutdown: Arc<AtomicBool>,
 ) -> Result<()>
 where
-    C: UserSpaceConfig<TXN, RXN>,
+    C: UserSpaceConfig,
 {
     let XdpWorker {
         mut umem,
@@ -112,6 +112,9 @@ where
     let mut rx_slab = xdp::slab::StackSlab::<RXN>::new();
     let mut tx_slab = xdp::slab::StackSlab::<TXN>::new();
     let mut pending_sends = 0;
+
+    let packet_processor =
+        &mut C::PacketProcessor::new_processor::<TXN, RXN>(config.init_processor_shared_state());
 
     //let mut state = WorkerState::new(ipv4, ipv6, data);
     tracing::info!("starting io loop");
@@ -137,16 +140,9 @@ where
                 //metrics can go here
                 tracing::info!("todo handle received error check -- got error {}", error)
             }
-            tracing::info!("recieved {}", received);
-            let mut data = config.init_packet_processing_state();
-            let packet_processor = config.packet_processor();
+            tracing::info!("received {}", received);
 
-            <C as UserSpaceConfig<TXN, RXN>>::PacketProcessor::process_batch(
-                &mut rx_slab,
-                &mut umem,
-                &mut tx_slab,
-                &mut data,
-            );
+            packet_processor.process_batch::<TXN, RXN>(&mut rx_slab, &mut umem, &mut tx_slab);
             let prev_len = tx_slab.len();
             let enqueued_sends = match tx.send(&mut tx_slab, true) {
                 Ok(es) => es,
@@ -186,7 +182,7 @@ pub struct IOLoopHandler<L: XdpLoaderConfig> {
     shutdown: Arc<std::sync::atomic::AtomicBool>,
 }
 
-pub struct XdpWorkers<const TXN: usize, const RXN: usize, C: UserSpaceConfig<TXN, RXN>> {
+pub struct XdpWorkers<const TXN: usize, const RXN: usize, C: UserSpaceConfig> {
     pub program: EbpfProgram<C::Loader>,
     pub workers: Vec<XdpWorker>,
     pub nic: NicIndex,

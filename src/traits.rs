@@ -17,33 +17,30 @@ pub trait XdpLoaderConfig: Send {
 /// Implemented program. The parameters take self just in case you need to pass
 /// some state when instatiating them. If not, just return unit structs which implement
 /// the required traits.
-pub trait UserSpaceConfig<const TXN: usize, const RXN: usize>: Send + Clone {
+pub trait UserSpaceConfig: Send + Clone {
     type Loader: XdpLoaderConfig;
-
-    type PacketProcessor: PacketProcessor<TXN, RXN, Self::ProcessorState>;
-
-    /// State shared between workers threads. I'm still working on this part
-    type SharedState: Send + Sync + 'static;
+    type PacketProcessor: PacketProcessor;
 
     /// The mutable data used during packet processing
-    type ProcessorState: Send + Sync + 'static;
+    fn init_processor_shared_state(
+        &self,
+    ) -> <Self::PacketProcessor as PacketProcessor>::SharedState;
     fn init_loader_config(&self) -> Self::Loader;
-    fn init_processor_shared_state(&self) -> Self::SharedState;
-    fn init_packet_processing_state(&self) -> Self::ProcessorState;
-    fn packet_processor(&self) -> Self::PacketProcessor;
 }
 
 /// This defines the part of the user space program which grabs, processes and queues packets for transmission.
 /// You'll probably want to implement this separately from the rest, it will be substantially larger.
-pub trait PacketProcessor<const TXN: usize, const RXN: usize, S: Send + Sync + 'static> {
-    //debating whether to have the packet processor return a result, for recording
-    // certain types of errors by the parent
-    //type ProcessorError;
+pub trait PacketProcessor {
+    type SharedState: Send + Sync + 'static;
 
-    fn process_batch(
+    /// Create a new processor. This has the TXN and RXN generics if implementor needs it, the same
+    /// values for TXN and RXN will be used when call process_batch.
+    /// The shared state comes from the UserSpaceConfig implementation
+    fn new_processor<const TXN: usize, const RXN: usize>(shared_state: Self::SharedState) -> Self;
+    fn process_batch<const TXN: usize, const RXN: usize>(
+        &mut self,
         rx_slab: &mut StackSlab<RXN>,
         umem: &mut Umem,
         tx_slab: &mut StackSlab<TXN>,
-        worker_state: &mut S,
     );
 }

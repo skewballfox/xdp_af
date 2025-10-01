@@ -15,9 +15,9 @@ use crate::{
     traits::{UserSpaceConfig, XdpLoaderConfig},
 };
 
-pub struct XdpBuilder<const TXN: usize, const RXN: usize, C>
+pub struct XdpBuilder<C>
 where
-    C: UserSpaceConfig<TXN, RXN>,
+    C: UserSpaceConfig,
 {
     nic_index: NicIndex,
     dev_capabilities: NetdevCapabilities,
@@ -27,11 +27,11 @@ where
     pub ring_cfg: RingConfigBuilder,
 }
 
-impl<const TXN: usize, const RXN: usize, C> XdpBuilder<TXN, RXN, C>
+impl<C> XdpBuilder<C>
 where
-    C: UserSpaceConfig<TXN, RXN> + 'static,
+    C: UserSpaceConfig + 'static,
 {
-    pub fn new(nic: NicIndex, config: C) -> stacked_errors::Result<XdpBuilder<TXN, RXN, C>> {
+    pub fn new(nic: NicIndex, config: C) -> stacked_errors::Result<XdpBuilder<C>> {
         let dev_capabilities = nic.query_capabilities().stack()?;
         let mut umem_config = UmemCfgBuilder::new(dev_capabilities.tx_metadata);
         // Provide enough headroom so that we can convert an ipv4 header to ipv6
@@ -51,7 +51,9 @@ where
         })
     }
 
-    pub fn build_io_loop(self) -> stacked_errors::Result<IOLoopHandler<C::Loader>> {
+    pub fn build_io_loop<const TXN: usize, const RXN: usize>(
+        self,
+    ) -> stacked_errors::Result<IOLoopHandler<C::Loader>> {
         let Self {
             nic_index,
             dev_capabilities,
@@ -69,7 +71,7 @@ where
         }
         let workers =
             program.create_and_bind_sockets(nic_index, umem_config, &dev_capabilities, ring_cfg)?;
-        spawn(XdpWorkers {
+        spawn::<TXN, RXN, _>(XdpWorkers {
             program,
             workers,
             nic: nic_index,
