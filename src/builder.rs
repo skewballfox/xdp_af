@@ -1,6 +1,7 @@
 #![allow(unused)]
 use std::marker::PhantomData;
 
+use aya::Ebpf;
 use stacked_errors::StackableErr;
 use xdp::{
     RingConfigBuilder,
@@ -10,7 +11,7 @@ use xdp::{
 };
 
 use crate::{
-    io_loop::{IOLoopHandler, XdpWorkers, spawn},
+    io_loop::{IOLoopHandle, XdpWorkers, spawn},
     program::EbpfProgram,
     traits::{UserSpaceConfig, XdpLoaderConfig},
 };
@@ -53,7 +54,7 @@ where
 
     pub fn build_io_loop<const TXN: usize, const RXN: usize>(
         self,
-    ) -> stacked_errors::Result<IOLoopHandler<C::Loader>> {
+    ) -> stacked_errors::Result<IOLoopHandle> {
         let Self {
             nic_index,
             dev_capabilities,

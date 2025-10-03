@@ -1,7 +1,7 @@
 #![allow(unused)]
 use std::sync::{Arc, atomic::AtomicBool};
 
-use aya::programs::xdp::XdpLinkId;
+use aya::{Ebpf, programs::xdp::XdpLinkId};
 use stacked_errors::{Error, Result, bail};
 use tracing::span;
 use xdp::{
@@ -11,14 +11,14 @@ use xdp::{
 };
 
 use crate::{
-    program::{EbpfProgram, XdpWorker},
+    program::{EbpfProgram, XdpWorker, detach_program},
     traits::{PacketProcessor, UserSpaceConfig, XdpLoaderConfig},
 };
 
 const BATCH_SIZE: usize = 64;
 pub fn spawn<const TXN: usize, const RXN: usize, C>(
     workers: XdpWorkers<TXN, RXN, C>,
-) -> Result<IOLoopHandler<C::Loader>>
+) -> Result<IOLoopHandle>
 where
     C: UserSpaceConfig + 'static,
 {
@@ -81,12 +81,7 @@ interface"
     // fallback behavior
     let xdp_link = ebpf_program.attach(workers.nic, aya::programs::xdp::XdpFlags::default())?;
 
-    Ok(IOLoopHandler {
-        threads: handles,
-        ebpf_program,
-        xdp_link,
-        shutdown,
-    })
+    Ok(IOLoopHandle::new(shutdown, xdp_link, handles, ebpf_program))
 }
 
 pub fn io_loop<const TXN: usize, const RXN: usize, C>(
@@ -169,17 +164,19 @@ where
     Ok(())
 }
 
-pub struct IOLoopHandler<L: XdpLoaderConfig> {
+pub struct IOLoopHandle {
     /// threads running the io loop. Length is either num_queues for an
     /// interface or min(num_cores, num_queues)
     threads: Vec<std::thread::JoinHandle<Result<()>>>,
-    /// The loaded ebpf program
-    ebpf_program: EbpfProgram<L>,
+    /// The loaded xdp program's entrypoint
+    xdp_program_entrypoint: String,
     /// id for link between xdp program and the network interface. Used to
     /// handle detachment during shutdown.
     xdp_link: XdpLinkId,
-    ///shutdown signal
+    /// shutdown signal
     shutdown: Arc<std::sync::atomic::AtomicBool>,
+    /// the ebpf program for accessing maps
+    ebpf: Ebpf,
 }
 
 pub struct XdpWorkers<const TXN: usize, const RXN: usize, C: UserSpaceConfig> {
@@ -189,17 +186,42 @@ pub struct XdpWorkers<const TXN: usize, const RXN: usize, C: UserSpaceConfig> {
     pub user_space: C,
 }
 
-impl<L: XdpLoaderConfig> IOLoopHandler<L> {
+impl IOLoopHandle {
+    pub fn new<L: XdpLoaderConfig>(
+        shutdown_toggle: Arc<AtomicBool>,
+        xdp_link: XdpLinkId,
+        threads: Vec<std::thread::JoinHandle<Result<()>>>,
+        program: EbpfProgram<L>,
+    ) -> Self {
+        let xdp_program_entrypoint = program.config.entry_point().to_string();
+
+        Self {
+            threads,
+            xdp_program_entrypoint,
+            xdp_link,
+            shutdown: shutdown_toggle,
+            ebpf: program.bpf,
+        }
+    }
+
     /// Detaches the eBPF program from the attacked NIC and cancels all I/O
     /// threads, waiting for them to exit
     pub fn shutdown(mut self, wait: bool) -> Result<()> {
-        if let Err(error) = self.ebpf_program.detach(self.xdp_link) {
-            bail!(format!("failed to detach eBPF program. Error: {error}"))
+        let already_shutdown = self
+            .shutdown
+            .fetch_or(true, std::sync::atomic::Ordering::Relaxed);
+
+        if already_shutdown {
+            return Ok(());
+        }
+
+        if let Err(error) =
+            detach_program(&mut self.ebpf, self.xdp_link, &self.xdp_program_entrypoint)
+        {
+            bail!("failed to detach eBPF program. Error: {error}")
             //tracing::error!(%error, "failed to detach eBPF program");
         }
         tracing::info!("starting io loop shutdown");
-        self.shutdown
-            .store(true, std::sync::atomic::Ordering::Relaxed);
 
         if !wait {
             return Ok(());
@@ -217,5 +239,9 @@ impl<L: XdpLoaderConfig> IOLoopHandler<L> {
             }
         }
         Ok(())
+    }
+
+    pub fn ebpf(&mut self) -> &mut Ebpf {
+        &mut self.ebpf
     }
 }

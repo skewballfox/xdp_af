@@ -1,4 +1,4 @@
-use aya::Ebpf;
+use aya::{Ebpf, programs::xdp::XdpLinkId};
 use stacked_errors::{Error, Result};
 use xdp::{affinity::CoreId, nic::NicIndex};
 
@@ -169,4 +169,19 @@ impl<C: XdpLoaderConfig> EbpfProgram<C> {
         program.detach(link_id).map_err(Error::from_err)?;
         Ok(())
     }
+}
+
+pub(crate) fn detach_program(
+    bpf: &mut Ebpf,
+    link_id: XdpLinkId,
+    program_entrypoint: &str,
+) -> Result<()> {
+    let program: &mut aya::programs::Xdp = bpf
+        .program_mut(program_entrypoint)
+        .unwrap_or_else(|| panic!("failed to locate {program_entrypoint} program"))
+        .try_into()
+        .unwrap_or_else(|_| panic!("{program_entrypoint} is not an xdp program"));
+    program.detach(link_id).map_err(Error::from_err)?;
+
+    Ok(())
 }

@@ -3,7 +3,6 @@ use std::ffi::CString;
 use stacked_errors::{StackableErr, bail};
 use xdp::nic::NicIndex;
 
-
 const LOCAL_PORT_RANGE: &str = "/proc/sys/net/ipv4/ip_local_port_range";
 /// quilkin relied on the default ephimeral port range being
 /// 32768-60999, so that it could use 61000-65535 for its program.
@@ -33,8 +32,7 @@ pub fn confirm_available_port_range(
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(
-                "ephimeral range start not available: system start {} provided start {}",
-                sys_start, start
+                "ephimeral range start not available: system start {sys_start} provided start {start}"
             ),
         ));
     }
@@ -77,7 +75,7 @@ pub fn get_ephemeral_port_range() -> std::result::Result<(u16, u16), std::io::Er
 
 #[allow(unused)]
 fn mut_ephemeral_port_range(start: u16, stop: u16) -> std::result::Result<(), std::io::Error> {
-    std::fs::write(LOCAL_PORT_RANGE, format!(" {}   {}", start, stop));
+    std::fs::write(LOCAL_PORT_RANGE, format!(" {start}   {stop}"));
     Ok(())
 }
 
@@ -88,7 +86,6 @@ pub fn nic_index_from_name(iface: CString) -> stacked_errors::Result<NicIndex> {
         Err(e) => Err(e),
     }
 }
-
 
 ///For functions that take bytes, offsets or lengths, this provides a
 /// way to indicate where exactly in the packet the inner value starts
