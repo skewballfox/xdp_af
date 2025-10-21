@@ -51,9 +51,42 @@ where
         })
     }
 
+    /// Set the cores to be used by the io loop
+    pub fn with_cores(mut self, cores: Vec<CoreId>) -> Self {
+        self.cores = Some(cores);
+        self
+    }
+
+    /// Set one core per queue on the device
+    pub fn core_per_queue(mut self) -> stacked_errors::Result<Self> {
+        let cores = xdp::affinity::CoreIds::new().stack()?;
+        let workers = cores.into_iter().take(
+            self.dev_capabilities.queue_count as usize
+        ).collect::<Vec<CoreId>>();
+        self.cores = Some(workers);
+        Ok(self)
+    }
+
+    /// Sets one core per queue on the device and returns both the builder with cores assigned as well as the leftover coreids
+    pub fn core_per_queue_and_available(mut self) -> stacked_errors::Result<(Self, Vec<CoreId>)> {
+        let cores = xdp::affinity::CoreIds::new().stack()?.into_iter().collect::<Vec<CoreId>>();
+        let (workers, cores) = cores.split_at(
+            self.dev_capabilities.queue_count as usize
+        );
+        let workers = workers.to_vec();
+
+        self.cores = Some(workers);
+        Ok((self, cores.to_vec()))
+        
+    }
+
     pub fn build_io_loop<const TXN: usize, const RXN: usize>(
-        self,
+        mut self,
     ) -> stacked_errors::Result<IOLoopHandler<C::Loader>> {
+        if self.cores.is_none() {
+            self = self.core_per_queue()?;
+        }
+
         let Self {
             nic_index,
             dev_capabilities,
@@ -62,6 +95,7 @@ where
             ring_cfg,
             cores,
         } = self;
+        // Need to expose umem and ring config builders to allow customization
         let umem_config = umem_config.build().stack()?;
         let ring_cfg = ring_cfg.build().stack()?;
         let mut program = EbpfProgram::load(config.init_loader_config()).stack()?;

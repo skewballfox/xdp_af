@@ -21,7 +21,7 @@ pub enum BindError {
 #[derive(thiserror::Error, Debug)]
 pub enum LoadError<E: core::error::Error + Send + Sync + 'static> {
     /// This wraps the errors that directly occur when loading the eBPF program
-    #[error("eBPF load error")]
+    #[error("eBPF load error: {0}")]
     Ebpf(#[from] aya::EbpfError),
     /// This wraps the errors that can occur when configuring the loader for our
     /// specific program, such as setting globals or checking constraints

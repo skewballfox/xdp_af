@@ -5,8 +5,8 @@ use xdp::nic::NicIndex;
 
 
 const LOCAL_PORT_RANGE: &str = "/proc/sys/net/ipv4/ip_local_port_range";
-/// quilkin relied on the default ephimeral port range being
-/// 32768-60999, so that it could use 61000-65535 for its program.
+/// quilkin relied on the default ephimeral port range being the default
+/// (32768-60999), so that it could use 61000-65535 for its program.
 /// This function checks that the system ephimeral port range is still
 /// ends at 60999 and returns the range above it to u16::MAX
 pub fn default_ephimeral_ports() -> stacked_errors::Result<Vec<(u16, u16)>> {
