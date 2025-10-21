@@ -1,8 +1,8 @@
 # XDP_AF
 
-Library for speedrunning `AF_XDP` ebpf programs. It handles the boilerplate configuration for making these sort of programs so you only have to implement the logic unique to your specific program.
+Library for speedrunning `AF_XDP` ebpf programs. It handles the boilerplate configuration for making these sort of programs so you only have to implement the logic unique to your specific program. I'm still hacking on this myself, so breaking changes might happen.
 
-Shoutout to quilkin for being one of the few rust-based AF_XDP programs in the wild. I spent so much time trying to understand your code I turned it into a library.
+Shoutout to [quilkin](https://github.com/EmbarkStudios/quilkin) for being one of the few rust-based AF_XDP programs in the wild. I spent so much time trying to understand your code I turned it into a library.
 
 ## How to use this Crate
 

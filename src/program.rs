@@ -133,16 +133,13 @@ impl<C: XdpLoaderConfig> EbpfProgram<C> {
         nic: NicIndex,
         flags: aya::programs::XdpFlags,
     ) -> Result<aya::programs::xdp::XdpLinkId> {
-        if let Err(_error) = aya_log::EbpfLogger::init(&mut self.bpf) {
-            // Would be good to enable this if we do end up adding log messages
-            // to the eBPF program, right now we don't so this will
-            // error as the ring buffer used to transfer log
-            // messages is not created if there are none
-            // tracing::warn!(%error, "failed to initialize eBPF logging");
+        if self.config.enable_logging() {
+            if let Err(error) = aya_log::EbpfLogger::init(&mut self.bpf) {
+                tracing::warn!("failed to initialize eBPF logging {}", error);
+            }
         }
 
-        // We use this entrypoint for now, but in the future we could also use
-        // a round robin mode when the xdp lib supports shared Umem
+        
         let program: &mut aya::programs::Xdp = self
             .bpf
             .program_mut(self.config.entry_point())
