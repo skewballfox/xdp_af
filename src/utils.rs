@@ -3,7 +3,6 @@ use std::ffi::CString;
 use stacked_errors::{StackableErr, bail};
 use xdp::nic::NicIndex;
 
-
 const LOCAL_PORT_RANGE: &str = "/proc/sys/net/ipv4/ip_local_port_range";
 /// quilkin relied on the default ephimeral port range being the default
 /// (32768-60999), so that it could use 61000-65535 for its program.
@@ -24,6 +23,7 @@ pub fn default_ephimeral_ports() -> stacked_errors::Result<Vec<(u16, u16)>> {
 /// Pass in a port range you would like to reserve for your program.
 /// mutates the system ephimeral port range to exclude the provided range
 /// returns an error if any part of the range is not available.
+/// Assumes the passed ports are little endian u16
 pub fn confirm_available_port_range(
     start: u16,
     end: u16,
@@ -38,12 +38,20 @@ pub fn confirm_available_port_range(
             ),
         ));
     }
+    // range starts at system range and stops prior to system end
     if sys_start == start && sys_end > end {
-        //set start..end aside for program
-        mut_ephemeral_port_range(end, sys_end)?;
+        //set system start to be
+        mut_ephemeral_port_range(end + 1, sys_end)?;
+        //the range ends at the end of the range available by the system
+        //and starts after the system start
     } else if sys_end == end && start > sys_start {
-        mut_ephemeral_port_range(start + 1, sys_end)?;
+        // set the available range to keep the system start and
+        //stop right before our range start
+        mut_ephemeral_port_range(sys_start, start - 1)?;
     }
+    //todo: handle other cases (range in middle)
+
+    // if start is after sys end, do nothing
 
     Ok(())
 }
@@ -72,7 +80,7 @@ pub fn get_ephemeral_port_range() -> std::result::Result<(u16, u16), std::io::Er
             format!("failed to parse range end '{end}'"),
         )
     })?;
-    Ok((start.to_be(), end.to_be()))
+    Ok((start, end))
 }
 
 #[allow(unused)]
@@ -88,7 +96,6 @@ pub fn nic_index_from_name(iface: CString) -> stacked_errors::Result<NicIndex> {
         Err(e) => Err(e),
     }
 }
-
 
 ///For functions that take bytes, offsets or lengths, this provides a
 /// way to indicate where exactly in the packet the inner value starts

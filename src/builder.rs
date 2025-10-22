@@ -60,24 +60,24 @@ where
     /// Set one core per queue on the device
     pub fn core_per_queue(mut self) -> stacked_errors::Result<Self> {
         let cores = xdp::affinity::CoreIds::new().stack()?;
-        let workers = cores.into_iter().take(
-            self.dev_capabilities.queue_count as usize
-        ).collect::<Vec<CoreId>>();
+        let workers = cores
+            .into_iter()
+            .take(self.dev_capabilities.queue_count as usize)
+            .collect::<Vec<CoreId>>();
         self.cores = Some(workers);
         Ok(self)
     }
 
     /// Sets one core per queue on the device and returns both the builder with cores assigned as well as the leftover coreids
     pub fn core_per_queue_and_available(mut self) -> stacked_errors::Result<(Self, Vec<CoreId>)> {
-        let cores = xdp::affinity::CoreIds::new().stack()?.into_iter().collect::<Vec<CoreId>>();
-        let (workers, cores) = cores.split_at(
-            self.dev_capabilities.queue_count as usize
-        );
+        let cores = xdp::affinity::CoreIds::new()
+            .stack()?
+            .collect::<Vec<CoreId>>();
+        let (workers, cores) = cores.split_at(self.dev_capabilities.queue_count as usize);
         let workers = workers.to_vec();
 
         self.cores = Some(workers);
         Ok((self, cores.to_vec()))
-        
     }
 
     pub fn build_io_loop<const TXN: usize, const RXN: usize>(

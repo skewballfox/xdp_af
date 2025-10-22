@@ -133,13 +133,12 @@ impl<C: XdpLoaderConfig> EbpfProgram<C> {
         nic: NicIndex,
         flags: aya::programs::XdpFlags,
     ) -> Result<aya::programs::xdp::XdpLinkId> {
-        if self.config.enable_logging() {
-            if let Err(error) = aya_log::EbpfLogger::init(&mut self.bpf) {
-                tracing::warn!("failed to initialize eBPF logging {}", error);
-            }
+        if self.config.enable_logging()
+            && let Err(error) = aya_log::EbpfLogger::init(&mut self.bpf)
+        {
+            tracing::warn!("failed to initialize eBPF logging {}", error);
         }
 
-        
         let program: &mut aya::programs::Xdp = self
             .bpf
             .program_mut(self.config.entry_point())

@@ -11,7 +11,7 @@ pub trait XdpLoaderConfig: Send {
         &'a self,
         loader: aya::EbpfLoader<'a>,
     ) -> Result<EbpfLoader<'a>, Self::Error>;
-    
+
     fn enable_logging(&self) -> bool {
         false
     }
