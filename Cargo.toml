@@ -3,6 +3,7 @@ name = "xdp_af"
 version = "0.1.0"
 edition = "2024"
 authors = ["skewballfox <joshua.ferguson.273@gmail.com>"]
+readme = "Readme.md"
 license = "MIT"
 repository = "https://github.com/skewballfox/xdp_af"
 description = "A Library for building the user-space components of AF_XDP applications in Rust."
