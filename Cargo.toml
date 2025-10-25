@@ -1,6 +1,6 @@
 [package]
 name = "xdp_af"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["skewballfox <joshua.ferguson.273@gmail.com>"]
 readme = "Readme.md"
