@@ -1,6 +1,3 @@
-#![allow(unused)]
-use std::marker::PhantomData;
-
 use stacked_errors::StackableErr;
 use xdp::{
     RingConfigBuilder,
@@ -12,7 +9,7 @@ use xdp::{
 use crate::{
     io_loop::{IOLoopHandler, XdpWorkers, spawn},
     program::EbpfProgram,
-    traits::{UserSpaceConfig, XdpLoaderConfig},
+    traits::UserSpaceConfig,
 };
 
 pub struct XdpBuilder<C>

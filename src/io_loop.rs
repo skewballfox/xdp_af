@@ -69,16 +69,7 @@ interface"
         handles.push(jh);
     }
 
-    // Now that all the io loops are running, attach the eBPF program to route
-    // packets to the bound sockets
     let mut ebpf_program = workers.program;
-
-    // We use the default flags here, which means that the program will be
-    // attached     // in driver mode if the NIC + driver is capable of it,
-    // otherwise it will     // fallback to SKB mode. This allows maximum
-    // compatibility, and we already     // provide flags to force zerocopy, which
-    // relies on driver mode, so the user     // can use that if they don't want the
-    // fallback behavior
     let xdp_link = ebpf_program.attach(workers.nic, aya::programs::xdp::XdpFlags::default())?;
 
     Ok(IOLoopHandler {
@@ -116,7 +107,6 @@ where
     let packet_processor =
         &mut C::PacketProcessor::new_processor::<TXN, RXN>(config.init_processor_shared_state());
 
-    //let mut state = WorkerState::new(ipv4, ipv6, data);
     tracing::info!("starting io loop");
     unsafe {
         while !shutdown.load(std::sync::atomic::Ordering::Relaxed) {
@@ -147,16 +137,7 @@ where
             let enqueued_sends = match tx.send(&mut tx_slab, true) {
                 Ok(es) => es,
                 Err(error) => {
-                    // These are all temporary errors that can occur during normal
-                    // operation
-                    // if !matches!(
-                    //     error.raw_os_error(),
-                    //     Some(libc::EBUSY | libc::ENOBUFS | libc::EAGAIN | libc::ENETDOWN)
-                    // ) {
-                    //     // This is shoehorning an error that isn't attributable to a particular
-                    //     // packet
-                    //     tracing::info!("TODO: handle enqueued sends err: {error}");
-                    // }
+                    // TODO: add trait for doing per-packet metrics to make errors optionally trackable
 
                     prev_len - tx_slab.len()
                 }
