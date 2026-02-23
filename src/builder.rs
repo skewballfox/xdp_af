@@ -1,3 +1,4 @@
+use aya::programs::XdpFlags;
 use stacked_errors::StackableErr;
 use xdp::{
     RingConfigBuilder,
@@ -22,6 +23,7 @@ where
     pub config: C,
     pub umem_config: UmemCfgBuilder,
     pub ring_cfg: RingConfigBuilder,
+    pub xdp_flags: XdpFlags,
 }
 
 impl<C> XdpBuilder<C>
@@ -45,12 +47,19 @@ where
             cores: None,
             umem_config,
             ring_cfg: RingConfigBuilder::default(),
+            xdp_flags: XdpFlags::default(),
         })
     }
 
     /// Set the cores to be used by the io loop
     pub fn with_cores(mut self, cores: Vec<CoreId>) -> Self {
         self.cores = Some(cores);
+        self
+    }
+
+    /// Set the flags passed when attaching the program
+    pub fn set_xdpflags(mut self, flags: XdpFlags) -> Self {
+        self.xdp_flags = flags;
         self
     }
 
@@ -91,6 +100,7 @@ where
             umem_config,
             ring_cfg,
             cores,
+            xdp_flags,
         } = self;
         // Need to expose umem and ring config builders to allow customization
         let umem_config = umem_config.build().stack()?;
@@ -102,11 +112,14 @@ where
         }
         let workers =
             program.create_and_bind_sockets(nic_index, umem_config, &dev_capabilities, ring_cfg)?;
-        spawn::<TXN, RXN, _>(XdpWorkers {
-            program,
-            workers,
-            nic: nic_index,
-            user_space: config,
-        })
+        spawn::<TXN, RXN, _>(
+            XdpWorkers {
+                program,
+                workers,
+                nic: nic_index,
+                user_space: config,
+            },
+            xdp_flags,
+        )
     }
 }

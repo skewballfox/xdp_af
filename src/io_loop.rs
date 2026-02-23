@@ -1,7 +1,7 @@
 #![allow(unused)]
 use std::sync::{Arc, atomic::AtomicBool};
 
-use aya::programs::xdp::XdpLinkId;
+use aya::programs::{XdpFlags, xdp::XdpLinkId};
 use stacked_errors::{Error, Result, bail};
 use tracing::span;
 use xdp::{
@@ -16,8 +16,10 @@ use crate::{
 };
 
 const BATCH_SIZE: usize = 64;
+
 pub fn spawn<const TXN: usize, const RXN: usize, C>(
     workers: XdpWorkers<TXN, RXN, C>,
+    flags: XdpFlags,
 ) -> Result<IOLoopHandler<C::Loader>>
 where
     C: UserSpaceConfig + 'static,
@@ -70,7 +72,7 @@ interface"
     }
 
     let mut ebpf_program = workers.program;
-    let xdp_link = ebpf_program.attach(workers.nic, aya::programs::xdp::XdpFlags::default())?;
+    let xdp_link = ebpf_program.attach(workers.nic, flags)?;
 
     Ok(IOLoopHandler {
         threads: handles,
