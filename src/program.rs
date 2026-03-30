@@ -89,8 +89,8 @@ impl<C: XdpLoaderConfig> EbpfProgram<C> {
         )
         .map_err(Error::from_err)?;
 
-        let num_workers = if self.core_ids.is_some() {
-            u32::try_from(self.core_ids.as_ref().unwrap().len())
+        let num_workers = if let Some(core_ids) = &self.core_ids {
+            u32::try_from(core_ids.len())
                 .unwrap()
                 .min(device_caps.queue_count)
         } else {

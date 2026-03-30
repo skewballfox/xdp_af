@@ -116,7 +116,6 @@ where
     let packet_processor =
         &mut C::PacketProcessor::new_processor::<TXN, RXN>(config.init_processor_shared_state());
 
-    //let mut state = WorkerState::new(ipv4, ipv6, data);
     tracing::info!("starting io loop");
     unsafe {
         while !shutdown.load(std::sync::atomic::Ordering::Relaxed) {

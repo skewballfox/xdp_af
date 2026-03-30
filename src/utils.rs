@@ -1,6 +1,8 @@
 use std::ffi::CString;
 
+use procfs::ProcError;
 use stacked_errors::{StackableErr, bail};
+use thiserror::Error;
 use xdp::nic::NicIndex;
 
 const LOCAL_PORT_RANGE: &str = "/proc/sys/net/ipv4/ip_local_port_range";
@@ -82,6 +84,99 @@ pub fn get_ephemeral_port_range() -> std::result::Result<(u16, u16), std::io::Er
     })?;
     Ok((start, end))
 }
+#[derive(Error, Debug)]
+pub enum XdpCheckError {
+    #[error("error while getting kernel info {0}")]
+    ProcFsError(ProcError),
+    #[error("error while getting driver info {0}")]
+    IoError(std::io::Error),
+    #[error("error while getting driver name")]
+    DriverNameUnreadable,
+    #[error("ethtool invocation failed: {0}")]
+    EthtoolError(String),
+}
+
+/// Returns the best flag to use given the systems capability
+pub fn get_xdp_capability(iface: &str) -> Result<Option<aya::programs::XdpFlags>, XdpCheckError> {
+    let version = procfs::sys::kernel::Version::current().map_err(XdpCheckError::ProcFsError)?;
+    // while support for XDP existed in some form since 4.18, gt 5.10 seems to be recommended for most features
+    // I'll tweak this to be lower if someone request it (hint, hint)
+    if version.major < 5 || (version.major == 5 && version.minor < 10) {
+        return Ok(None);
+    }
+    if check_driver_hw_capable(iface)? {
+        return Ok(Some(aya::programs::XdpFlags::HW_MODE));
+    }
+
+    //check if native and zero copy is supported
+    if check_native_xdp_support(iface)? == Some(NativeSupport::ZeroCopy) {
+        return Ok(Some(aya::programs::XdpFlags::DRV_MODE));
+    }
+
+    Ok(Some(aya::programs::XdpFlags::SKB_MODE))
+}
+
+#[derive(Debug, PartialEq)]
+enum NativeSupport {
+    ZeroCopy, // xdp-zc: on  (implies native too)
+    Native,   // xdp-native: on, xdp-zc: off
+}
+
+fn check_driver_hw_capable(iface: &str) -> Result<bool, XdpCheckError> {
+    // HW_MODE offload is realistically only nfp today
+    const HW_OFFLOAD_DRIVERS: &[&str] = &["nfp"];
+    let driver = get_driver_name(iface)?;
+    Ok(HW_OFFLOAD_DRIVERS.contains(&driver.as_str()))
+}
+
+fn get_driver_name(iface: &str) -> Result<String, XdpCheckError> {
+    let path = format!("/sys/class/net/{}/device/driver", iface);
+    let link = std::fs::read_link(&path).map_err(XdpCheckError::IoError)?;
+    link.file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.to_string())
+        .ok_or(XdpCheckError::DriverNameUnreadable)
+}
+
+/// Runs `ethtool -k <iface>` and parses xdp-native / xdp-zc feature flags.
+/// ethtool is part of the standard Linux net-tools suite and can be assumed
+/// present on any system where XDP is relevant.
+fn check_native_xdp_support(iface: &str) -> Result<Option<NativeSupport>, XdpCheckError> {
+    let out = std::process::Command::new("ethtool")
+        .args(["-k", iface])
+        .output()
+        .map_err(XdpCheckError::IoError)?;
+
+    if !out.status.success() {
+        return Err(XdpCheckError::EthtoolError(
+            String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    parse_ethtool_xdp_features(&stdout)
+}
+
+fn parse_ethtool_xdp_features(output: &str) -> Result<Option<NativeSupport>, XdpCheckError> {
+    let mut native = false;
+    let mut zero_copy = false;
+
+    for line in output.lines() {
+        // Lines look like:  "xdp-native: on" or "xdp-zc: off [fixed]"
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("xdp-zc:") {
+            zero_copy = rest.trim_start().starts_with("on");
+        } else if let Some(rest) = line.strip_prefix("xdp-native:") {
+            native = rest.trim_start().starts_with("on");
+        }
+    }
+
+    Ok(match (native || zero_copy, zero_copy) {
+        (_, true) => Some(NativeSupport::ZeroCopy),
+        (true, false) => Some(NativeSupport::Native),
+        (false, false) => None,
+    })
+}
 
 #[allow(unused)]
 fn mut_ephemeral_port_range(start: u16, stop: u16) -> std::result::Result<(), std::io::Error> {
@@ -89,11 +184,22 @@ fn mut_ephemeral_port_range(start: u16, stop: u16) -> std::result::Result<(), st
     Ok(())
 }
 
-pub fn nic_index_from_name(iface: CString) -> stacked_errors::Result<NicIndex> {
-    match NicIndex::lookup_by_name(&iface).stack() {
+#[derive(Debug, thiserror::Error)]
+pub enum NicLookupError {
+    #[error("interface name {0:?} is invalid (contains nul byte)")]
+    InvalidName(String),
+    #[error("interface {0:?} does not exist")]
+    NotFound(CString),
+    #[error("failed to look up interface {1:?}: {0}")]
+    LookupFailed(#[source] std::io::Error, CString),
+}
+
+pub fn nic_index_from_name(iface: &str) -> Result<NicIndex, NicLookupError> {
+    let cname = CString::new(iface).map_err(|_| NicLookupError::InvalidName(iface.to_string()))?;
+    match NicIndex::lookup_by_name(&cname) {
         Ok(Some(res)) => Ok(res),
-        Ok(None) => bail!(format!("iface {:?} does not exists", &iface)),
-        Err(e) => Err(e),
+        Ok(None) => Err(NicLookupError::NotFound(cname)),
+        Err(e) => Err(NicLookupError::LookupFailed(e, cname)),
     }
 }
 
