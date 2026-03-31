@@ -45,7 +45,7 @@ where
     pub flags: Vec<XdpFlags>,
     pub umem_config: UmemCfgBuilder,
     pub ring_cfg: RingConfigBuilder,
-    pub xdp_flags: XdpFlags,
+    
 }
 
 type LError<C> = <<C as UserSpaceConfig>::Loader as XdpLoaderConfig>::Error;
@@ -85,11 +85,7 @@ where
         self
     }
 
-    /// Set the flags passed when attaching the program
-    pub fn set_xdpflags(mut self, flags: XdpFlags) -> Self {
-        self.xdp_flags = flags;
-        self
-    }
+    
 
     /// Set one core per queue on the device
     pub fn core_per_queue(mut self) -> Result<Self, XdpBuilderError<C>> {
@@ -116,9 +112,9 @@ where
         Ok((self, cores.to_vec()))
     }
 
-    /// Try HW mode, then try Driver mode, then try SKB mode
-    pub fn try_best_flags(mut self) -> Self {
-        self.flags = vec![XdpFlags::HW_MODE, XdpFlags::DRV_MODE, XdpFlags::SKB_MODE];
+    /// Set the flags passed when attaching the program
+    pub fn set_flag(mut self, flags: XdpFlags) -> Self {
+        self.flags = vec![flags];
         self
     }
 
@@ -127,6 +123,14 @@ where
         self.flags = flags;
         self
     }
+
+    /// Try HW mode, then try Driver mode, then try SKB mode
+    pub fn try_all_flags(mut self) -> Self {
+        self.flags = vec![XdpFlags::HW_MODE, XdpFlags::DRV_MODE, XdpFlags::SKB_MODE];
+        self
+    }
+
+    
 
     pub fn build_io_loop<const TXN: usize, const RXN: usize>(
         mut self,
