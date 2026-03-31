@@ -45,6 +45,7 @@ where
     pub flags: Vec<XdpFlags>,
     pub umem_config: UmemCfgBuilder,
     pub ring_cfg: RingConfigBuilder,
+    pub xdp_flags: XdpFlags,
 }
 
 type LError<C> = <<C as UserSpaceConfig>::Loader as XdpLoaderConfig>::Error;
@@ -81,6 +82,12 @@ where
     /// Set the cores to be used by the io loop
     pub fn with_cores(mut self, cores: Vec<CoreId>) -> Self {
         self.cores = Some(cores);
+        self
+    }
+
+    /// Set the flags passed when attaching the program
+    pub fn set_xdpflags(mut self, flags: XdpFlags) -> Self {
+        self.xdp_flags = flags;
         self
     }
 

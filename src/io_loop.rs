@@ -30,6 +30,7 @@ pub enum SpawnError<L: XdpLoaderConfig> {
 }
 
 const BATCH_SIZE: usize = 64;
+
 pub fn spawn<const TXN: usize, const RXN: usize, C>(
     workers: XdpWorkers<TXN, RXN, C>,
     flags: &[XdpFlags],
@@ -86,8 +87,6 @@ where
         handles.push(jh);
     }
 
-    // Now that all the io loops are running, attach the eBPF program to route
-    // packets to the bound sockets
     let mut ebpf_program = workers.program;
 
     let xdp_link = 'attach: {
@@ -165,16 +164,7 @@ pub fn io_loop<const TXN: usize, const RXN: usize, C>(
             let enqueued_sends = match tx.send(&mut tx_slab, true) {
                 Ok(es) => es,
                 Err(error) => {
-                    // These are all temporary errors that can occur during normal
-                    // operation
-                    // if !matches!(
-                    //     error.raw_os_error(),
-                    //     Some(libc::EBUSY | libc::ENOBUFS | libc::EAGAIN | libc::ENETDOWN)
-                    // ) {
-                    //     // This is shoehorning an error that isn't attributable to a particular
-                    //     // packet
-                    //     tracing::info!("TODO: handle enqueued sends err: {error}");
-                    // }
+                    // TODO: add trait for doing per-packet metrics to make errors optionally trackable
 
                     prev_len - tx_slab.len()
                 }

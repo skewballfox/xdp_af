@@ -1,13 +1,20 @@
 [package]
 name = "xdp_af"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
+authors = ["skewballfox <joshua.ferguson.273@gmail.com>"]
+readme = "Readme.md"
+license = "MIT"
+repository = "https://github.com/skewballfox/xdp_af"
+description = "A Library for building the user-space components of AF_XDP applications in Rust."
+categories = ["network-programming"]
+keywords = ["xdp", "ebpf", "af_xdp", "networking"]
 
 [dependencies]
 aya = "0.13.1"
 aya-log = "0.2.1"
 procfs = { version = "0.18.0", default-features = false, features = ["serde1", "flate2"] }
 stacked_errors = "0.7.1"
-thiserror = "2.0.17"
-tracing = "0.1.41"
-xdp = "0.7.1"
+thiserror = "2.0.18"
+tracing = "0.1.44"
+xdp = "0.7.2"

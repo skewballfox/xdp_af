@@ -5,13 +5,19 @@ use xdp::{Umem, slab::StackSlab};
 /// checking constraints required for its operation.
 pub trait XdpLoaderConfig: Send {
     type Error: core::error::Error + Send + Sync + 'static;
+
     fn load<'a>(&'a self, loader: aya::EbpfLoader<'a>) -> Result<aya::Ebpf, aya::EbpfError>;
+
+    /// The name of the entry point function for the eBPF program
     fn entry_point(&self) -> &str;
+
+    /// set globals, configure logging levels, etc
     fn configure_loader<'a>(
         &'a self,
         loader: aya::EbpfLoader<'a>,
     ) -> Result<EbpfLoader<'a>, Self::Error>;
 
+    /// If this returns true, eBPF logging will be enabled for the program.
     fn enable_logging(&self) -> bool {
         false
     }
@@ -29,6 +35,8 @@ pub trait UserSpaceConfig: Send + Clone {
     fn init_processor_shared_state(
         &self,
     ) -> <Self::PacketProcessor as PacketProcessor>::SharedState;
+
+    /// pass any required state to the loader config
     fn init_loader_config(&self) -> Self::Loader;
 }
 
