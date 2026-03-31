@@ -1,6 +1,6 @@
 use std::ffi::CString;
 
-use procfs::ProcError;
+use procfs::{ProcError};
 use stacked_errors::{StackableErr, bail};
 use thiserror::Error;
 use xdp::nic::NicIndex;

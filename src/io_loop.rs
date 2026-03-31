@@ -1,7 +1,7 @@
 #![allow(unused)]
 use std::sync::{Arc, atomic::AtomicBool};
 
-use aya::programs::xdp::XdpLinkId;
+use aya::programs::{XdpFlags, xdp::XdpLinkId};
 use stacked_errors::{Error, Result, bail};
 use tracing::span;
 use xdp::{
@@ -15,9 +15,12 @@ use crate::{
     traits::{PacketProcessor, UserSpaceConfig, XdpLoaderConfig},
 };
 
+
+
 const BATCH_SIZE: usize = 64;
 pub fn spawn<const TXN: usize, const RXN: usize, C>(
     workers: XdpWorkers<TXN, RXN, C>,
+    flags: &[XdpFlags]
 ) -> Result<IOLoopHandler<C::Loader>>
 where
     C: UserSpaceConfig + 'static,
@@ -73,13 +76,17 @@ interface"
     // packets to the bound sockets
     let mut ebpf_program = workers.program;
 
-    // We use the default flags here, which means that the program will be
-    // attached     // in driver mode if the NIC + driver is capable of it,
-    // otherwise it will     // fallback to SKB mode. This allows maximum
-    // compatibility, and we already     // provide flags to force zerocopy, which
-    // relies on driver mode, so the user     // can use that if they don't want the
-    // fallback behavior
-    let xdp_link = ebpf_program.attach(workers.nic, aya::programs::xdp::XdpFlags::default())?;
+    
+    let xdp_link = 'attach: {
+    let mut last_err = None;
+    for &flag in flags {
+        match ebpf_program.attach(workers.nic, flag) {
+            Ok(l) => break 'attach l,
+            Err(e) => last_err = Some(e),
+        }
+    }
+        return Err(last_err.expect("flags must not be empty"));
+    };
 
     Ok(IOLoopHandler {
         threads: handles,

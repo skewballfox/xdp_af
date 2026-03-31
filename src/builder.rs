@@ -8,6 +8,7 @@ use xdp::{
     nic::{NetdevCapabilities, NicIndex},
     umem::UmemCfgBuilder,
 };
+use aya::programs::{XdpFlags, xdp::XdpLinkId};
 
 use crate::{
     io_loop::{IOLoopHandler, XdpWorkers, spawn},
@@ -19,10 +20,14 @@ pub struct XdpBuilder<C>
 where
     C: UserSpaceConfig,
 {
+
     nic_index: NicIndex,
     dev_capabilities: NetdevCapabilities,
+    /// The cores to be used for the userspace workers
     pub cores: Option<Vec<CoreId>>,
+    /// The configuration for your specific program
     pub config: C,
+    pub flags: Vec<XdpFlags>,
     pub umem_config: UmemCfgBuilder,
     pub ring_cfg: RingConfigBuilder,
 }
@@ -48,6 +53,10 @@ where
             cores: None,
             umem_config,
             ring_cfg: RingConfigBuilder::default(),
+            /// we will default to the defualt flag, which should
+            /// attach in driver mode if the NIC + driver is capable of it,
+            /// otherwise it will fallback to SKB mode. 
+            flags: vec![XdpFlags::default()]
         })
     }
 
@@ -80,6 +89,19 @@ where
         Ok((self, cores.to_vec()))
     }
 
+    /// Try HW mode, then try Driver mode, then try SKB mode
+    pub fn try_best_flags(mut self) -> Self {
+        self.flags = vec![XdpFlags::HW_MODE, XdpFlags::DRV_MODE, XdpFlags::SKB_MODE];
+        self
+    }
+
+    /// Set the flags to be used or attempted when attaching the eBPF program
+    pub fn set_flags(mut self, flags: Vec<XdpFlags>) -> Self {
+        self.flags = flags;
+        self
+
+    }
+
     pub fn build_io_loop<const TXN: usize, const RXN: usize>(
         mut self,
     ) -> stacked_errors::Result<IOLoopHandler<C::Loader>> {
@@ -94,7 +116,9 @@ where
             umem_config,
             ring_cfg,
             cores,
+            flags
         } = self;
+
         // Need to expose umem and ring config builders to allow customization
         let umem_config = umem_config.build().stack()?;
         let ring_cfg = ring_cfg.build().stack()?;
@@ -110,6 +134,8 @@ where
             workers,
             nic: nic_index,
             user_space: config,
-        })
+        },
+        &flags
+        )
     }
 }
