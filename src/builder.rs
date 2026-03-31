@@ -45,7 +45,6 @@ where
     pub flags: Vec<XdpFlags>,
     pub umem_config: UmemCfgBuilder,
     pub ring_cfg: RingConfigBuilder,
-    
 }
 
 type LError<C> = <<C as UserSpaceConfig>::Loader as XdpLoaderConfig>::Error;
@@ -84,8 +83,6 @@ where
         self.cores = Some(cores);
         self
     }
-
-    
 
     /// Set one core per queue on the device
     pub fn core_per_queue(mut self) -> Result<Self, XdpBuilderError<C>> {
@@ -129,8 +126,6 @@ where
         self.flags = vec![XdpFlags::HW_MODE, XdpFlags::DRV_MODE, XdpFlags::SKB_MODE];
         self
     }
-
-    
 
     pub fn build_io_loop<const TXN: usize, const RXN: usize>(
         mut self,
