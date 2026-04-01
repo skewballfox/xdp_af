@@ -1,6 +1,5 @@
 use std::ffi::CString;
 
-use stacked_errors::{StackableErr, bail};
 use xdp::nic::NicIndex;
 
 const LOCAL_PORT_RANGE: &str = "/proc/sys/net/ipv4/ip_local_port_range";
@@ -8,12 +7,13 @@ const LOCAL_PORT_RANGE: &str = "/proc/sys/net/ipv4/ip_local_port_range";
 /// (32768-60999), so that it could use 61000-65535 for its program.
 /// This function checks that the system ephimeral port range is still
 /// ends at 60999 and returns the range above it to u16::MAX
-pub fn default_ephimeral_ports() -> stacked_errors::Result<Vec<(u16, u16)>> {
-    let (start, end) = get_ephemeral_port_range().stack()?;
+pub fn outside_ephimeral_ports() -> Result<Vec<(u16, u16)>, std::io::Error> {
+    let (_, end) = get_ephemeral_port_range()?;
 
     if end != 60999 {
-        bail!(format!(
-            "Default ephimeral port range modified: {start} {end}"
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "expected 2 u16 integers",
         ));
     }
 
@@ -89,11 +89,22 @@ fn mut_ephemeral_port_range(start: u16, stop: u16) -> std::result::Result<(), st
     Ok(())
 }
 
-pub fn nic_index_from_name(iface: CString) -> stacked_errors::Result<NicIndex> {
-    match NicIndex::lookup_by_name(&iface).stack() {
+#[derive(Debug, thiserror::Error)]
+pub enum NicLookupError {
+    #[error("interface name {0:?} is invalid (contains nul byte)")]
+    InvalidName(String),
+    #[error("interface {0:?} does not exist")]
+    NotFound(CString),
+    #[error("failed to look up interface {1:?}: {0}")]
+    LookupFailed(#[source] std::io::Error, CString),
+}
+
+pub fn nic_index_from_name(iface: &str) -> Result<NicIndex, NicLookupError> {
+    let cname = CString::new(iface).map_err(|_| NicLookupError::InvalidName(iface.to_string()))?;
+    match NicIndex::lookup_by_name(&cname) {
         Ok(Some(res)) => Ok(res),
-        Ok(None) => bail!(format!("iface {:?} does not exists", &iface)),
-        Err(e) => Err(e),
+        Ok(None) => Err(NicLookupError::NotFound(cname)),
+        Err(e) => Err(NicLookupError::LookupFailed(e, cname)),
     }
 }
 

@@ -2,7 +2,6 @@
 use std::sync::{Arc, atomic::AtomicBool};
 
 use aya::programs::{XdpFlags, xdp::XdpLinkId};
-use stacked_errors::{Error, Result, bail};
 use tracing::span;
 use xdp::{
     Umem, libc,
@@ -11,31 +10,46 @@ use xdp::{
 };
 
 use crate::{
-    program::{EbpfProgram, XdpWorker},
+    program::{EbpfProgram, ProgramError, XdpWorker},
     traits::{PacketProcessor, UserSpaceConfig, XdpLoaderConfig},
 };
+#[derive(thiserror::Error, Debug)]
+pub enum SpawnError<L: XdpLoaderConfig> {
+    #[error("failed to query local addresses: {0}")]
+    AddressQueryError(std::io::Error),
+    #[error("no local address found")]
+    NoLocalAddressError,
+    #[error("error during program configuration: {0}")]
+    ProgramError(ProgramError<L>),
+    #[error("failed to set thread affinity {0}")]
+    ThreadAffinityError(std::io::Error),
+    #[error("failed to spawn thread {0}")]
+    ThreadSpawnError(std::io::Error),
+    #[error("XDP I/O thread encountered error during shutdown: {0}")]
+    ShutdownError(String),
+}
 
 const BATCH_SIZE: usize = 64;
 
 pub fn spawn<const TXN: usize, const RXN: usize, C>(
     workers: XdpWorkers<TXN, RXN, C>,
-    flags: XdpFlags,
-) -> Result<IOLoopHandler<C::Loader>>
+    flags: &[XdpFlags],
+) -> Result<IOLoopHandler<C::Loader>, SpawnError<C::Loader>>
 where
     C: UserSpaceConfig + 'static,
 {
-    let (ipv4, ipv6) = workers.nic.addresses().map_err(Error::from_err)?;
+    let (ipv4, ipv6) = workers
+        .nic
+        .addresses()
+        .map_err(SpawnError::AddressQueryError)?;
     if ipv4.is_none() && ipv6.is_none() {
-        bail!(format!(
-            "Needs at least one of defined local address for network
-interface"
-        ));
-    };
+        return Err(SpawnError::NoLocalAddressError);
+    }
 
     let barrier = Arc::new(std::sync::Barrier::new(workers.workers.len()));
     let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
-    let _span = span!(tracing::Level::INFO, "io loop").entered();
+    let _span = span!(tracing::Level::TRACE, "io loop").entered();
     let mut handles = Vec::with_capacity(workers.workers.len());
 
     for (i, mut worker) in workers.workers.into_iter().enumerate() {
@@ -51,28 +65,40 @@ interface"
         let jh = std::thread::Builder::new()
             .name(format!("xdp-io-{i}"))
             .spawn(move || {
-                tracing::info!("spawning worker {}", i);
+                tracing::trace!("spawning worker {}", i);
                 if let Some(core_id) = core_id {
-                    core_id.set_affinity().unwrap();
+                    core_id
+                        .set_affinity()
+                        .map_err(SpawnError::ThreadAffinityError)?;
                 }
                 unsafe {
                     if let Err(error) = worker.fill.enqueue(&mut worker.umem, BATCH_SIZE, true) {
-                        bail!(format!(
-                            "failed to kick fill ring during initial spinup.
-        Error: {error}"
+                        return Err(SpawnError::ProgramError(
+                            ProgramError::WakableFillRingError(error),
                         ));
                     }
                 };
                 barrier.wait();
-                tracing::info!("passing to inner loop");
-                io_loop::<TXN, RXN, _>(worker, config, shutdown)
+                tracing::trace!("passing to inner loop");
+                io_loop::<TXN, RXN, _>(worker, config, shutdown);
+                Ok(())
             })
-            .map_err(Error::from_err)?;
+            .map_err(SpawnError::ThreadSpawnError)?;
         handles.push(jh);
     }
 
     let mut ebpf_program = workers.program;
-    let xdp_link = ebpf_program.attach(workers.nic, flags)?;
+
+    let xdp_link = 'attach: {
+        let mut last_err = None;
+        for &flag in flags {
+            match ebpf_program.attach(workers.nic, flag) {
+                Ok(l) => break 'attach l,
+                Err(e) => last_err = Some(e),
+            }
+        }
+        return Err(SpawnError::ProgramError(last_err.unwrap()));
+    };
 
     Ok(IOLoopHandler {
         threads: handles,
@@ -86,8 +112,7 @@ pub fn io_loop<const TXN: usize, const RXN: usize, C>(
     worker: XdpWorker,
     config: C,
     shutdown: Arc<AtomicBool>,
-) -> Result<()>
-where
+) where
     C: UserSpaceConfig,
 {
     let XdpWorker {
@@ -149,13 +174,12 @@ where
             pending_sends -= completion.dequeue(&mut umem, pending_sends);
         }
     }
-    Ok(())
 }
 
 pub struct IOLoopHandler<L: XdpLoaderConfig> {
     /// threads running the io loop. Length is either num_queues for an
     /// interface or min(num_cores, num_queues)
-    threads: Vec<std::thread::JoinHandle<Result<()>>>,
+    threads: Vec<std::thread::JoinHandle<Result<(), SpawnError<L>>>>,
     /// The loaded ebpf program
     ebpf_program: EbpfProgram<L>,
     /// id for link between xdp program and the network interface. Used to
@@ -175,12 +199,11 @@ pub struct XdpWorkers<const TXN: usize, const RXN: usize, C: UserSpaceConfig> {
 impl<L: XdpLoaderConfig> IOLoopHandler<L> {
     /// Detaches the eBPF program from the attacked NIC and cancels all I/O
     /// threads, waiting for them to exit
-    pub fn shutdown(mut self, wait: bool) -> Result<()> {
-        if let Err(error) = self.ebpf_program.detach(self.xdp_link) {
-            bail!(format!("failed to detach eBPF program. Error: {error}"))
-            //tracing::error!(%error, "failed to detach eBPF program");
-        }
-        tracing::info!("starting io loop shutdown");
+    pub fn shutdown(mut self, wait: bool) -> Result<(), SpawnError<L>> {
+        self.ebpf_program
+            .detach(self.xdp_link)
+            .map_err(SpawnError::ProgramError)?;
+        tracing::trace!("starting io loop shutdown");
         self.shutdown
             .store(true, std::sync::atomic::Ordering::Relaxed);
 
@@ -190,13 +213,7 @@ impl<L: XdpLoaderConfig> IOLoopHandler<L> {
 
         for jh in self.threads {
             if let Err(error) = jh.join() {
-                if let Some(error) = error.downcast_ref::<&'static str>() {
-                    bail!(format!("XDP I/O thread enountered error {error}"))
-                } else if let Some(error) = error.downcast_ref::<String>() {
-                    bail!(format!("XDP I/O thread enountered error {error}"))
-                } else {
-                    bail!(format!("XDP I/O thread enountered error {:#?}", error))
-                };
+                Err(SpawnError::ShutdownError(format!("{:#?}", error)))?;
             }
         }
         Ok(())
